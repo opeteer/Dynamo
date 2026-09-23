@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamo Vault</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            950: '#020617',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Courier New', Courier, monospace; }
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-300 h-screen flex flex-col" x-data="vaultApp()" x-init="initApp()">
+
+    <!-- TOP BAR -->
+    <header class="border-b border-slate-800 bg-slate-900 px-6 py-4 flex justify-between items-center shrink-0">
+        <div class="flex items-center gap-3">
+            <i data-lucide="shield" class="text-emerald-500 w-6 h-6"></i>
+            <h1 class="text-xl font-bold tracking-widest text-slate-100">DYNAMO</h1>
+        </div>
+        <div class="flex items-center gap-4 text-sm" x-show="view === 'dashboard'" x-cloak>
+            <div class="flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-full border border-emerald-500/30">
+                <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span class="text-emerald-400">UNLOCKED</span>
+            </div>
+            <button @click="shuffle" class="flex items-center gap-2 hover:text-amber-400 transition-colors" title="Dynamic Shuffle">
+                <i data-lucide="shuffle" class="w-4 h-4"></i> Shuffle
+            </button>
+            <button @click="lock" class="flex items-center gap-2 hover:text-slate-100 transition-colors">
+                <i data-lucide="lock" class="w-4 h-4"></i> Lock
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 overflow-hidden flex flex-col p-6">
+        
+        <!-- GATE / AUTH -->
+        <div x-show="view === 'gate'" x-cloak class="flex-1 flex items-center justify-center">
+            <div class="bg-slate-900 border border-slate-700 p-8 rounded-lg w-full max-w-md shadow-2xl">
+                <div class="text-center mb-6">
+                    <i data-lucide="lock-keyhole" class="w-12 h-12 text-slate-500 mx-auto mb-4"></i>
+                    <h2 class="text-2xl text-slate-100" x-text="status.initialized ? 'Vault Locked' : 'Initialize Vault'"></h2>
+                    <p class="text-xs text-slate-500 mt-2" x-text="status.initialized ? 'Enter Master Password to decrypt session.' : 'Set a strong Master Password.'"></p>
+                </div>
+                
+                <form @submit.prevent="authAction">
+                    <input type="password" x-model="password" class="w-full bg-slate-950 border border-slate-700 rounded px-4 py-3 mb-4 text-slate-200 outline-none focus:border-emerald-500 transition-colors" placeholder="Master Password" required>
+                    
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-4 rounded transition-colors" x-text="status.initialized ? 'UNLOCK' : 'INITIALIZE'"></button>
+                    
+                    <div class="text-red-400 text-sm mt-4 text-center" x-show="error" x-text="error"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- DASHBOARD -->
+        <div x-show="view === 'dashboard'" x-cloak class="flex-1 flex flex-col h-full max-w-5xl mx-auto w-full">
+            
+            <!-- CONTROLS -->
+            <div class="flex justify-between items-center mb-6 shrink-0">
+                <h2 class="text-lg text-slate-100 flex items-center gap-2"><i data-lucide="folder-lock" class="w-5 h-5"></i> Secure Storage</h2>
+                
+                <div class="flex gap-3">
+                    <label class="cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded border border-slate-700 transition-colors flex items-center gap-2">
+                        <i data-lucide="upload" class="w-4 h-4"></i> Upload File
+                        <input type="file" class="hidden" @change="uploadFile">
+                    </label>
+                    <button @click="showPurge = true" class="bg-red-950/50 hover:bg-red-900 text-red-400 px-4 py-2 rounded border border-red-900/50 transition-colors flex items-center gap-2">
+                        <i data-lucide="skull" class="w-4 h-4"></i> Panic Purge
+                    </button>
+                </div>
+            </div>
+
+            <!-- FILE LIST -->
+            <div class="flex-1 bg-slate-900 border border-slate-800 rounded-lg overflow-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-950 sticky top-0 z-10 border-b border-slate-800">
+                        <tr>
+                            <th class="py-3 px-4 text-slate-500 font-normal">Name</th>
+                            <th class="py-3 px-4 text-slate-500 font-normal w-32">Size</th>
+                            <th class="py-3 px-4 text-slate-500 font-normal w-48">Date</th>
+                            <th class="py-3 px-4 text-slate-500 font-normal w-32 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/50">
+                        <tr x-show="Object.keys(files).length === 0">
+                            <td colspan="4" class="py-12 text-center text-slate-600">No files in vault.</td>
+                        </tr>
+                        <template x-for="[id, file] in Object.entries(files)" :key="id">
+                            <tr class="hover:bg-slate-800/50 transition-colors group">
+                                <td class="py-3 px-4 flex items-center gap-3">
+                                    <i data-lucide="file" class="w-4 h-4 text-slate-500"></i>
+                                    <span class="text-slate-300" x-text="file.name"></span>
+                                </td>
+                                <td class="py-3 px-4 text-slate-400" x-text="formatBytes(file.size)"></td>
+                                <td class="py-3 px-4 text-slate-400" x-text="formatDate(file.created_at)"></td>
+                                <td class="py-3 px-4 text-right">
+                                    <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button @click="download(id)" class="p-2 text-slate-400 hover:text-emerald-400" title="Download">
+                                            <i data-lucide="download" class="w-4 h-4"></i>
+                                        </button>
+                                        <button @click="deleteFile(id)" class="p-2 text-slate-400 hover:text-red-400" title="Delete">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- UPLOAD PROGRESS -->
+            <div x-show="uploading" class="mt-4 p-3 bg-slate-900 border border-slate-700 rounded flex justify-between items-center text-sm">
+                <span class="text-slate-300 flex items-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin text-emerald-500"></i> Uploading & Encrypting...</span>
+            </div>
+        </div>
+
+        <!-- PURGE MODAL -->
+        <div x-show="showPurge" x-cloak class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div class="bg-slate-900 border border-red-900 p-8 rounded-lg w-full max-w-md shadow-2xl relative overflow-hidden" @click.outside="showPurge = false">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600 to-amber-500"></div>
+                <h3 class="text-2xl text-red-500 font-bold mb-2">PANIC PURGE</h3>
+                <p class="text-slate-400 text-sm mb-6">This action will instantly crypto-shred all vault keys and overwrite all physical files. Data cannot be recovered.</p>
+                
+                <div class="mb-6">
+                    <label class="block text-xs text-slate-500 mb-2">Type "CONFIRM PURGE" to proceed:</label>
+                    <input type="text" x-model="purgeConfirm" class="w-full bg-slate-950 border border-slate-700 rounded px-4 py-3 text-slate-200 outline-none focus:border-red-500" placeholder="CONFIRM PURGE">
+                </div>
+                
+                <div class="flex gap-4">
+                    <button @click="showPurge = false" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded transition-colors">Cancel</button>
+                    <button @click="executePurge" :disabled="purgeConfirm !== 'CONFIRM PURGE'" class="flex-1 bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded transition-colors">EXECUTE</button>
+                </div>
+            </div>
+        </div>
+        
+    </main>
+
+    <script>
+        function vaultApp() {
+            return {
+                view: 'gate',
+                status: { initialized: false, unlocked: false },
+                password: '',
+                error: '',
+                files: {},
+                uploading: false,
+                showPurge: false,
+                purgeConfirm: '',
+
+                async initApp() {
+                    lucide.createIcons();
+                    await this.checkStatus();
+                },
+
+                async checkStatus() {
+                    try {
+                        const res = await fetch('/api/status');
+                        this.status = await res.json();
+                        if (this.status.unlocked) {
+                            this.view = 'dashboard';
+                            this.loadFiles();
+                        } else {
+                            this.view = 'gate';
+                        }
+                    } catch (e) {
+                        this.error = "Cannot connect to server.";
+                    }
+                },
+
+                async authAction() {
+                    this.error = '';
+                    const endpoint = this.status.initialized ? '/api/unlock' : '/api/init';
+                    try {
+                        const res = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ password: this.password })
+                        });
+                        
+                        if (res.ok) {
+                            this.password = '';
+                            await this.checkStatus();
+                        } else {
+                            const err = await res.json();
+                            this.error = err.detail || 'Authentication failed.';
+                        }
+                    } catch (e) {
+                        this.error = 'Network error.';
+                    }
+                },
+
+                async lock() {
+                    await fetch('/api/lock', { method: 'POST' });
+                    this.status.unlocked = false;
+                    this.view = 'gate';
+                    this.files = {};
+                },
+
+                async loadFiles() {
+                    if (!this.status.unlocked) return;
+                    try {
+                        const res = await fetch('/api/files');
+                        if (res.status === 401) { this.lock(); return; }
+                        const data = await res.json();
+                        this.files = data.files || {};
+                        setTimeout(() => lucide.createIcons(), 50);
+                    } catch (e) {
+                        console.error("Failed to load files", e);
+                    }
+                },
+
+                async uploadFile(e) {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    
+                    this.uploading = true;
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    try {
+                        const res = await fetch('/api/files/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        if (res.ok) {
+                            this.loadFiles();
+                        } else if (res.status === 401) {
+                            this.lock();
+                        }
+                    } catch (e) {
+                        console.error("Upload failed", e);
+                    } finally {
+                        this.uploading = false;
+                        e.target.value = '';
+                    }
+                },
+
+                async download(id) {
+                    window.location.href = `/api/files/download/${id}`;
+                },
+
+                async deleteFile(id) {
+                    if(!confirm("Delete this file permanently?")) return;
+                    try {
+                        const res = await fetch(`/api/files/${id}`, { method: 'DELETE' });
+                        if(res.ok) {
+                            this.loadFiles();
+                        }
+                    } catch(e) {
+                        console.error("Delete failed", e);
+                    }
+                },
+                
+                async shuffle() {
+                    try {
+                        const res = await fetch('/api/shuffle', { method: 'POST' });
+                        if(res.ok) {
+                            // blink ui or something
+                            this.loadFiles();
+                            alert("Storage shuffled and remaped successfully.");
+                        }
+                    } catch(e) {
+                        console.error("Shuffle failed", e);
+                    }
+                },
+
+                async executePurge() {
+                    if(this.purgeConfirm !== 'CONFIRM PURGE') return;
+                    try {
+                        await fetch('/api/purge', { method: 'POST' });
+                        this.showPurge = false;
+                        this.purgeConfirm = '';
+                        this.status.initialized = false;
+                        this.status.unlocked = false;
+                        this.view = 'gate';
+                        this.files = {};
+                        alert("Vault Purged. All data crypto-shredded.");
+                        window.location.reload();
+                    } catch(e) {
+                        console.error("Purge failed", e);
+                    }
+                },
+
+                formatBytes(bytes, decimals = 2) {
+                    if (!+bytes) return '0 Bytes'
+                    const k = 1024
+                    const dm = decimals < 0 ? 0 : decimals
+                    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
+                    const i = Math.floor(Math.log(bytes) / Math.log(k))
+                    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
+                },
+
+                formatDate(isoStr) {
+                    const d = new Date(isoStr);
+                    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+                }
+            }
+        }
+    </script>
+</body>
+</html>

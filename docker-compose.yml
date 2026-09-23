@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  dynamo:
+    build: .
+    container_name: dynamo_vault
+    restart: unless-stopped
+    ports:
+      - "8031:8031"
+    volumes:
+      - dynamo_data:/app/data
+    env_file:
+      - .env
+
+volumes:
+  dynamo_data:
